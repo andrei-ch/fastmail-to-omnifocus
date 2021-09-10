@@ -1,0 +1,175 @@
+/*{
+    "author": "Andrei Chtcherbatchenko",
+    "targets": ["omnifocus"],
+    "type": "action",
+    "identifier": "com.codiumlabs.fastmail-to-omnifocus",
+    "version": "0.1",
+    "description": "A plug-in that imports pinned emails from Fastmail into Omnifocus",
+    "label": "Import Pinned Emails",
+    "mediumLabel": "Import Pinned Emails",
+    "paletteLabel": "Import Pinned Emails",
+}*/
+(() => {
+    var action = new PlugIn.Action(async function(selection) {
+
+    const auth_url = "https://jmap.fastmail.com/.well-known/jmap";
+    const username = "YOUR_EMAIL_HERE";
+    const password = "YOUR_PASSWORD_HERE";
+
+    const auth_token = Data.fromString(username + ":" + password).toBase64();
+    const processed_keyword = "omnifocus-imported";
+    const debug_mode = true;
+
+    const fetch = async (request) => {
+        if (debug_mode) {
+            console.log(`DEBUG: request.url = ${request.url}`)
+            console.log(`DEBUG: request.method = ${request.method}`)
+            console.log(`DEBUG: request.headers = ${JSON.stringify(request.headers)}`)
+        }
+        const response = await request.fetch();
+        if (debug_mode) {
+            console.log(`DEBUG: response.statusCode=${response.statusCode}`);
+            console.log(`DEBUG: response.url=${response.url}`);
+            console.log(`DEBUG: response.mimeType=${response.mimeType}`);
+            console.log(`DEBUG: response.headers=${JSON.stringify(response.headers)}`);
+            console.log(`DEBUG: response.bodyString=${response.bodyString}`);
+        }
+        return response;
+    };
+
+    const get_session = async () => {
+            const fetch_auth_request = async (url) => {
+                var request = URL.FetchRequest.fromString(url);
+                request.method = "GET";
+                request.cache = "no-cache";
+                request.headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": `Basic ${auth_token}`
+                };
+                return fetch(request);
+            };
+    
+            var response = await fetch_auth_request(auth_url);
+
+            if (response.statusCode == 401 && response.url.string != auth_url) {
+                response = await fetch_auth_request(response.url.string);
+            }
+            
+            if (response.statusCode < 200 || response.statusCode >= 300) {
+                throw new Error(`The server responded with ${responseCode} error.`)
+            }
+            
+            const session = JSON.parse(response.bodyString);
+            return {
+                api_url: session.apiUrl,
+                account_id: session.primaryAccounts["urn:ietf:params:jmap:mail"]
+            };
+        };
+
+        const get_pinned_emails = async (session) => {
+            var request = URL.FetchRequest.fromString(session.api_url);
+            request.method = "POST";
+            request.cache = "no-cache";
+            request.headers = {
+                "Content-Type": "application/json",
+                "Authorization": `Basic ${auth_token}`
+            };
+            request.bodyString = JSON.stringify({
+                using: ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+                methodCalls: [
+                  [
+                    "Email/query",
+                    {
+                      accountId: session.account_id,
+                      filter: { hasKeyword: "$flagged", notKeyword: processed_keyword },
+                      sort: [{ property: "receivedAt", isAscending: true }],
+                      limit: 100
+                    },
+                    "a"
+                  ],
+                  [
+                    "Email/get",
+                    {
+                      accountId: session.account_id,
+                      properties: ["id", "subject", "receivedAt", "from", "replyTo", "preview", "keywords"],
+                      "#ids": {
+                        resultOf: "a",
+                        name: "Email/query",
+                        path: "/ids/*"
+                      }
+                    },
+                    "b"
+                  ]
+                ]
+              });
+            const response = await fetch(request);
+            const json = JSON.parse(response.bodyString);
+            return json["methodResponses"][1][1]["list"];
+        };
+    
+        const create_tasks = (emails) => {
+            emails.forEach(email => {
+                var task = new Task(`Pinned: ${email.subject}`, inbox.ending);
+                task.note = `From: ${email.from[0].name} <${email.from[0].email}>\n${email.preview}`;
+                task.flagged = true;
+            });
+        };
+
+        const tag_emails = async (session, emails) => {
+            if (emails.length == 0) {
+                return;
+            }
+            var update_list = {};
+            emails.forEach(email => {
+              update_list[email.id] = {};
+              update_list[email.id][`keywords/${processed_keyword}`] = true;
+            });
+            var request = URL.FetchRequest.fromString(session.api_url);
+            request.method = "POST";
+            request.cache = "no-cache";
+            request.headers = {
+                "Content-Type": "application/json",
+                "Authorization": `Basic ${auth_token}`
+            };
+            request.bodyString = JSON.stringify({
+                  using: ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+                  methodCalls: [
+                    [
+                      "Email/set",
+                      {
+                        accountId: session.account_id,
+                        update: update_list
+                      },
+                      "a"
+                    ]
+                  ]
+                });
+            await fetch(request);
+        };
+
+        try {
+            // Establish session
+            const session = await get_session();
+
+            // Import pinned emails
+            const emails = await get_pinned_emails(session);
+
+            // Create a task for each pinned email
+            create_tasks(emails);
+
+            // Mark emails as processed to prevent re-import
+            await tag_emails(session, emails);
+        } catch (err) {
+            console.log(`DEBUG: ${err}`);
+        }
+    });
+
+    // If needed, uncomment, and add a function that returns true if the current selection is appropriate for the action.
+    /*
+    action.validate = function(selection){
+
+    };
+    */
+        
+    return action;
+})();
