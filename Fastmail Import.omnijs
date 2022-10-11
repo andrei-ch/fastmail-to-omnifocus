@@ -12,39 +12,37 @@
 (() => {
     var action = new PlugIn.Action(async function(selection) {
 
-    const auth_url = "https://jmap.fastmail.com/.well-known/jmap";
-    const username = "YOUR_EMAIL_HERE";
-    const password = "YOUR_PASSWORD_HERE";
+      const auth_url = "https://api.fastmail.com/.well-known/jmap";
+      const auth_token = "YOUR_API_TOKEN_HERE";
 
-    const auth_token = Data.fromString(username + ":" + password).toBase64();
-    const processed_keyword = "omnifocus-imported";
-    const debug_mode = true;
+      const processed_keyword = "omnifocus-imported";
+      const debug_mode = true;
 
-    const fetch = async (request) => {
-        if (debug_mode) {
-            console.log(`DEBUG: request.url = ${request.url}`)
-            console.log(`DEBUG: request.method = ${request.method}`)
-            console.log(`DEBUG: request.headers = ${JSON.stringify(request.headers)}`)
-        }
-        const response = await request.fetch();
-        if (debug_mode) {
-            console.log(`DEBUG: response.statusCode=${response.statusCode}`);
-            console.log(`DEBUG: response.url=${response.url}`);
-            console.log(`DEBUG: response.mimeType=${response.mimeType}`);
-            console.log(`DEBUG: response.headers=${JSON.stringify(response.headers)}`);
-            console.log(`DEBUG: response.bodyString=${response.bodyString}`);
-        }
-        return response;
-    };
+      const fetch = async (request) => {
+          if (debug_mode) {
+              console.log(`DEBUG: request.url = ${request.url}`)
+              console.log(`DEBUG: request.method = ${request.method}`)
+              console.log(`DEBUG: request.headers = ${JSON.stringify(request.headers)}`)
+          }
+          const response = await request.fetch();
+          if (debug_mode) {
+              console.log(`DEBUG: response.statusCode=${response.statusCode}`);
+              console.log(`DEBUG: response.url=${response.url}`);
+              console.log(`DEBUG: response.mimeType=${response.mimeType}`);
+              console.log(`DEBUG: response.headers=${JSON.stringify(response.headers)}`);
+              console.log(`DEBUG: response.bodyString=${response.bodyString}`);
+          }
+          return response;
+      };
 
-    const get_session = async () => {
+      const get_session = async () => {
             const fetch_auth_request = async (url) => {
                 var request = URL.FetchRequest.fromString(url);
                 request.method = "GET";
                 request.cache = "no-cache";
                 request.headers = {
                     "Content-Type": "application/json",
-                    "Authorization": `Basic ${auth_token}`
+                    "Authorization": `Bearer ${auth_token}`
                 };
                 return fetch(request);
             };
@@ -72,7 +70,7 @@
             request.cache = "no-cache";
             request.headers = {
                 "Content-Type": "application/json",
-                "Authorization": `Basic ${auth_token}`
+                "Authorization": `Bearer ${auth_token}`
             };
             request.bodyString = JSON.stringify({
                 using: ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
@@ -129,7 +127,7 @@
             request.cache = "no-cache";
             request.headers = {
                 "Content-Type": "application/json",
-                "Authorization": `Basic ${auth_token}`
+                "Authorization": `Bearer ${auth_token}`
             };
             request.bodyString = JSON.stringify({
                   using: ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
@@ -159,6 +157,8 @@
 
             // Mark emails as processed to prevent re-import
             await tag_emails(session, emails);
+        
+            console.log(`DEBUG: Import finished`);
         } catch (err) {
             console.log(`DEBUG: ${err}`);
         }
