@@ -16,7 +16,7 @@
       const auth_token = "YOUR_API_TOKEN_HERE";
 
       const processed_keyword = "omnifocus-imported";
-      const debug_mode = true;
+      const debug_mode = false;
 
       const fetch = async (request) => {
           if (debug_mode) {
@@ -64,7 +64,35 @@
             };
         };
 
-        const get_pinned_emails = async (session) => {
+        const get_trash_mailbox = async (session) => {
+            var request = URL.FetchRequest.fromString(session.api_url);
+            request.method = "POST";
+            request.cache = "no-cache";
+            request.headers = {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${auth_token}`
+            };
+            request.bodyString = JSON.stringify({
+                using: ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+                methodCalls: [
+                  [
+                    "Mailbox/query",
+                    {
+                      accountId: session.account_id,
+                      filter: { role: "trash" },
+                      sort: [{ property: "name", isAscending: true }],
+                      limit: 10
+                    },
+                    "a"
+                  ]
+                ]
+              });
+            const response = await fetch(request);
+            const json = JSON.parse(response.bodyString);
+            return json["methodResponses"][0][1]["ids"];
+        };
+
+        const get_pinned_emails = async (session, trash_ids) => {
             var request = URL.FetchRequest.fromString(session.api_url);
             request.method = "POST";
             request.cache = "no-cache";
@@ -79,7 +107,11 @@
                     "Email/query",
                     {
                       accountId: session.account_id,
-                      filter: { hasKeyword: "$flagged", notKeyword: processed_keyword },
+                      filter: {
+                        hasKeyword: "$flagged",
+                        notKeyword: processed_keyword,
+                        inMailboxOtherThan: trash_ids
+                      },
                       sort: [{ property: "receivedAt", isAscending: true }],
                       limit: 100
                     },
@@ -149,8 +181,11 @@
             // Establish session
             const session = await get_session();
 
+            // Query folders to exclude from search
+            const trash_ids = await get_trash_mailbox(session);
+
             // Import pinned emails
-            const emails = await get_pinned_emails(session);
+            const emails = await get_pinned_emails(session, trash_ids);
 
             // Create a task for each pinned email
             create_tasks(emails);
